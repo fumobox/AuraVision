@@ -56,7 +56,10 @@ export class XRInputManager {
       controller.addEventListener('selectend', () => this._onControllerSelectEnd(controller));
       controller.addEventListener('squeezestart', () => {
         // Grip button recenters the workspace in front of the user
-        this.workspace.recenter(this.camera);
+        const xrCam = this.renderer.xr.isPresenting
+          ? this.renderer.xr.getCamera()
+          : this.camera;
+        this.workspace.recenter(xrCam, true);
       });
 
       this.scene.add(controller);
@@ -80,10 +83,16 @@ export class XRInputManager {
 
     if (obj.userData.isGrabBar && obj.userData.draggableGroup) {
       const group = obj.userData.draggableGroup;
+      const grabOffset = new THREE.Vector3();
+      if (group.parent) {
+        const localHit = group.parent.worldToLocal(hit.point.clone());
+        grabOffset.copy(group.position).sub(localHit);
+      }
       this.grabState = {
         controller,
         group,
-        distance: hit.distance
+        distance: hit.distance,
+        grabOffset
       };
       return;
     }
@@ -105,7 +114,7 @@ export class XRInputManager {
   update() {
     // Handle window dragging if grabbed
     if (this.grabState) {
-      const { controller, group, distance } = this.grabState;
+      const { controller, group, distance, grabOffset } = this.grabState;
       this.tempMatrix.identity().extractRotation(controller.matrixWorld);
       const origin = new THREE.Vector3().setFromMatrixPosition(controller.matrixWorld);
       const dir = new THREE.Vector3(0, 0, -1).applyMatrix4(this.tempMatrix);
@@ -113,9 +122,21 @@ export class XRInputManager {
 
       if (group.parent) {
         group.parent.worldToLocal(worldTarget);
-        group.position.copy(worldTarget);
-        // Face center toward local origin (viewer)
-        group.rotation.y = Math.atan2(-group.position.x, -group.position.z);
+        group.position.copy(worldTarget).add(grabOffset);
+
+        // Compute viewer (head) position in parent's local coordinate system
+        // so the window always faces the user rather than the workspace center (0,0,0)
+        const activeCam = this.renderer.xr.isPresenting
+          ? this.renderer.xr.getCamera()
+          : this.camera;
+        const camLocal = new THREE.Vector3().setFromMatrixPosition(activeCam.matrixWorld);
+        group.parent.worldToLocal(camLocal);
+
+        const dx = camLocal.x - group.position.x;
+        const dz = camLocal.z - group.position.z;
+        if (Math.hypot(dx, dz) > 0.05) {
+          group.rotation.y = Math.atan2(dx, dz) * 0.65;
+        }
       }
     }
 
@@ -178,4 +199,3 @@ export class XRInputManager {
     });
   }
 }
-

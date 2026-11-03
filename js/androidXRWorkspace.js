@@ -19,6 +19,7 @@ export class AndroidXRWorkspace {
 
     this.interactiveMeshes = [];
     this.clippedMaterials = [];
+    this.windowEntries = [];
 
     // Media player state
     this.isPlaying = true;
@@ -63,7 +64,8 @@ export class AndroidXRWorkspace {
       canvasW: 1024,
       canvasH: 640,
       pos: new THREE.Vector3(0, 0.06, 0),
-      rotY: 0
+      rotY: 0,
+      rotX: 0
     });
     this.windowsGroup.add(this.centerWin.group);
 
@@ -75,7 +77,8 @@ export class AndroidXRWorkspace {
       canvasW: 768,
       canvasH: 672,
       pos: new THREE.Vector3(-1.18, 0.06, 0.28),
-      rotY: THREE.MathUtils.degToRad(24)
+      rotY: THREE.MathUtils.degToRad(24),
+      rotX: 0
     });
     this.windowsGroup.add(this.leftWin.group);
 
@@ -87,7 +90,8 @@ export class AndroidXRWorkspace {
       canvasW: 768,
       canvasH: 672,
       pos: new THREE.Vector3(1.18, 0.06, 0.28),
-      rotY: THREE.MathUtils.degToRad(-24)
+      rotY: THREE.MathUtils.degToRad(-24),
+      rotX: 0
     });
     this.windowsGroup.add(this.rightWin.group);
 
@@ -97,10 +101,10 @@ export class AndroidXRWorkspace {
     this._drawCenterWindow(0);
   }
 
-  _createCanvasWindow({ id, width, height, canvasW, canvasH, pos, rotY }) {
+  _createCanvasWindow({ id, width, height, canvasW, canvasH, pos, rotY = 0, rotX = 0 }) {
     const group = new THREE.Group();
     group.position.copy(pos);
-    group.rotation.y = rotY;
+    group.rotation.set(rotX, rotY, 0);
 
     const canvas = document.createElement('canvas');
     canvas.width = canvasW;
@@ -154,7 +158,23 @@ export class AndroidXRWorkspace {
     group.add(pillMesh);
     this.interactiveMeshes.push(pillMesh);
 
-    return { id, group, mesh, canvas, ctx, texture, width, height, canvasW, canvasH };
+    const entry = {
+      id,
+      group,
+      mesh,
+      canvas,
+      ctx,
+      texture,
+      width,
+      height,
+      canvasW,
+      canvasH,
+      initialPos: pos.clone(),
+      initialRotX: rotX,
+      initialRotY: rotY
+    };
+    this.windowEntries.push(entry);
+    return entry;
   }
 
   /**
@@ -169,9 +189,9 @@ export class AndroidXRWorkspace {
       canvasW: 1088,
       canvasH: 272,
       pos: new THREE.Vector3(0, -0.58, 0.18),
-      rotY: 0
+      rotY: 0,
+      rotX: THREE.MathUtils.degToRad(-16)
     });
-    this.dockWin.group.rotation.x = THREE.MathUtils.degToRad(-16);
     this.windowsGroup.add(this.dockWin.group);
     this._drawDockWindow();
   }
@@ -423,7 +443,7 @@ export class AndroidXRWorkspace {
         body: 'XREAL Aura の対角70° (水平61.4°×垂直40.7°) では、正面ウインドウの隣り合うサブウインドウの約35%が同時に視野に入り、首振り量を大幅に削減します。'
       },
       {
-        title: 'AI リアルタイム翻訳・字幕 오버レイ検証',
+        title: 'AI リアルタイム翻訳・字幕 オーバーレイ検証',
         body: '1920×1200 (16:10) の縦方向 +120px 拡張により、相手の顔を見ながら視界下部にリアルタイム翻訳字幕を表示しても圧迫感がありません。'
       },
       {
@@ -499,7 +519,8 @@ export class AndroidXRWorkspace {
     const cy = diagY + diagH * 0.52;
     const scale = 330; // px per unit tan
 
-    models.slice().reverse().forEach((k) => {
+    const reversedModels = models.slice().reverse();
+    reversedModels.forEach((k, idx) => {
       const p = MODEL_PRESETS[k];
       const { halfTanH, halfTanV, hFovDeg, vFovDeg } = computeFovAngles(p.diagFov, p.aspectW, p.aspectH);
       const rw = halfTanH * scale * 2;
@@ -515,12 +536,14 @@ export class AndroidXRWorkspace {
       ctx.stroke();
 
       ctx.fillStyle = p.hex;
-      ctx.font = isCurr ? 'bold 15px "Segoe UI", sans-serif' : '14px "Segoe UI", sans-serif';
+      ctx.font = isCurr ? 'bold 14.5px "Segoe UI", sans-serif' : '13.5px "Segoe UI", sans-serif';
       ctx.textAlign = 'left';
+      // Stagger vertical label positions inside the nested boxes so they never overlap
+      const labelY = cy - rh * 0.5 + 17 + (idx > 0 ? idx * 8 : 0);
       ctx.fillText(
         `${p.name} ${p.diagFov}° (${hFovDeg.toFixed(0)}°×${vFovDeg.toFixed(0)}°)`,
-        cx - rw * 0.5 + 8,
-        cy - rh * 0.5 + 18
+        cx - rw * 0.5 + 10,
+        labelY
       );
     });
 
@@ -799,15 +822,16 @@ export class AndroidXRWorkspace {
   setWorkspaceDistance(distMeters, camera) {
     this.workspaceDistance = distMeters;
     if (camera) {
-      this.recenter(camera);
+      this.recenter(camera, false);
     }
     this._drawCenterWindow(0);
   }
 
   /**
-   * Recenters the workspace directly in front of the user's current horizontal gaze
+   * Recenters the workspace directly in front of the user's current horizontal gaze.
+   * When resetWindows is true, also restores individual windows to their default arc layout.
    */
-  recenter(camera) {
+  recenter(camera, resetWindows = false) {
     const pos = new THREE.Vector3();
     const quat = new THREE.Quaternion();
     const scale = new THREE.Vector3();
@@ -826,12 +850,20 @@ export class AndroidXRWorkspace {
     this.rootGroup.position.copy(this.targetPosition);
     this.rootGroup.quaternion.copy(this.targetQuaternion);
     this.hasInitializedPose = true;
+
+    if (resetWindows) {
+      for (const entry of this.windowEntries) {
+        entry.group.position.copy(entry.initialPos);
+        entry.group.rotation.set(entry.initialRotX, entry.initialRotY, 0);
+      }
+    }
   }
 
   update(dt, camera) {
     if (!this.hasInitializedPose || this.recenterRequested) {
+      const shouldResetWindows = this.recenterRequested;
       this.recenterRequested = false;
-      this.recenter(camera);
+      this.recenter(camera, shouldResetWindows);
     }
 
     const headPos = new THREE.Vector3();
@@ -862,4 +894,3 @@ export class AndroidXRWorkspace {
     }
   }
 }
-

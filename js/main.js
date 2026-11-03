@@ -245,6 +245,7 @@ class AuraVisionApp {
     let isDraggingLook = false;
     let draggedWindowGroup = null;
     let dragDistance = 1.8;
+    const dragOffset = new THREE.Vector3();
     let pointerDownPos = { x: 0, y: 0 };
     let prevPointerPos = { x: 0, y: 0 };
 
@@ -260,8 +261,15 @@ class AuraVisionApp {
 
       const hits = raycaster.intersectObjects(this.workspace.interactiveMeshes, false);
       if (hits.length > 0 && hits[0].object.userData.isGrabBar) {
-        draggedWindowGroup = hits[0].object.userData.draggableGroup;
-        dragDistance = hits[0].distance;
+        const hit = hits[0];
+        draggedWindowGroup = hit.object.userData.draggableGroup;
+        dragDistance = hit.distance;
+        if (draggedWindowGroup.parent) {
+          const localHit = draggedWindowGroup.parent.worldToLocal(hit.point.clone());
+          dragOffset.copy(draggedWindowGroup.position).sub(localHit);
+        } else {
+          dragOffset.set(0, 0, 0);
+        }
         return;
       }
 
@@ -280,11 +288,18 @@ class AuraVisionApp {
           .addScaledVector(raycaster.ray.direction, dragDistance);
         if (draggedWindowGroup.parent) {
           draggedWindowGroup.parent.worldToLocal(targetWorld);
-          draggedWindowGroup.position.copy(targetWorld);
-          draggedWindowGroup.rotation.y = Math.atan2(
-            -draggedWindowGroup.position.x,
-            -draggedWindowGroup.position.z
-          );
+          draggedWindowGroup.position.copy(targetWorld).add(dragOffset);
+
+          // Orient window toward the viewer's head (camera) in local space,
+          // NOT toward the workspace center (0,0,0)
+          const camLocal = new THREE.Vector3().setFromMatrixPosition(this.camera.matrixWorld);
+          draggedWindowGroup.parent.worldToLocal(camLocal);
+
+          const dx = camLocal.x - draggedWindowGroup.position.x;
+          const dz = camLocal.z - draggedWindowGroup.position.z;
+          if (Math.hypot(dx, dz) > 0.05) {
+            draggedWindowGroup.rotation.y = Math.atan2(dx, dz) * 0.65;
+          }
         }
         return;
       }
@@ -350,7 +365,7 @@ class AuraVisionApp {
         this.headPitch = 0;
         this.camera.quaternion.identity();
         this.camera.updateMatrixWorld(true);
-        this.workspace.recenter(this.camera);
+        this.workspace.recenter(this.camera, true);
       } else if (e.code === 'KeyG') {
         this.fovSimulator.setShowAngleGrid(!this.fovSimulator.showAngleGrid);
         this.sync2DHudFromState();
@@ -448,7 +463,7 @@ class AuraVisionApp {
       const activeCam = this.renderer.xr.isPresenting
         ? this.renderer.xr.getCamera()
         : this.camera;
-      this.workspace.recenter(activeCam);
+      this.workspace.recenter(activeCam, true);
     });
 
     this.sync2DHudFromState();
@@ -533,4 +548,3 @@ class AuraVisionApp {
 window.addEventListener('DOMContentLoaded', () => {
   window.auraVisionApp = new AuraVisionApp();
 });
-
