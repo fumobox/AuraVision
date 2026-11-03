@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>AuraVision — XREAL Aura (70° FOV) WebXR Passthrough Simulator</title>
+  <link rel="stylesheet" href="./css/style.css" />
+  <!-- Import Map for Three.js ES Modules (Zero-build CDN) -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <!-- 3D WebGL / WebXR Canvas Container -->
+  <div id="canvas-container"></div>
+
+  <!-- 2D HUD & Launch Overlay (Visible on PC & before entering XR on Quest) -->
+  <div id="ui-overlay">
+    <header class="hud-header">
+      <div class="brand">
+        <span class="badge-xr">ANDROID XR SIM</span>
+        <h1>AuraVision <span class="sub">XREAL Aura 70° FOV Simulator</span></h1>
+      </div>
+      <div class="header-actions">
+        <button id="btn-webcam" class="hud-btn secondary" title="PCプレビュー時にWebカメラ映像を背景に使用">
+          📷 PC背景カメラ: OFF
+        </button>
+        <button id="btn-toggle-hud" class="hud-btn secondary">
+          パネルを隠す
+        </button>
+      </div>
+    </header>
+
+    <main id="control-panel" class="hud-panel">
+      <!-- Primary WebXR Launch CTA -->
+      <div class="xr-launch-box">
+        <button id="btn-enter-ar" class="enter-ar-btn">
+          <span class="icon">🥽</span>
+          <span class="label">Meta Quest パススルー (AR) を開始</span>
+        </button>
+        <p id="xr-status-msg" class="xr-status">
+          WebXR (immersive-ar) 確認中... PCではマウスドラッグで首振り・視野切れをシミュレートできます。
+        </p>
+      </div>
+
+      <!-- Model FOV Presets -->
+      <section class="control-group">
+        <div class="group-header">
+          <h2>1. 光学ディスプレイ FOV モデル比較</h2>
+          <span id="fov-readout" class="spec-pill">対角 70° (61.4° × 40.7° / 16:10)</span>
+        </div>
+        <div class="preset-grid" id="model-buttons">
+          <button class="preset-btn" data-model="air">
+            <strong>XREAL Air / Air 2</strong>
+            <span>46° (16:9)</span>
+          </button>
+          <button class="preset-btn" data-model="ultra">
+            <strong>Air 2 Ultra</strong>
+            <span>52° (16:9)</span>
+          </button>
+          <button class="preset-btn" data-model="onepro">
+            <strong>XREAL One Pro</strong>
+            <span>57° (16:9)</span>
+          </button>
+          <button class="preset-btn active" data-model="aura">
+            <strong>XREAL Aura</strong>
+            <span>70° (16:10) ★</span>
+          </button>
+          <button class="preset-btn" data-model="full">
+            <strong>制限なし (Quest全域)</strong>
+            <span>Unclipped</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- 5-Stage Electrochromic Dimming -->
+      <section class="control-group">
+        <div class="group-header">
+          <h2>2. 5段階エレクトロクロミック調光 (Dimmer)</h2>
+          <span id="dimmer-readout" class="spec-pill">Lv.2 (35% 透過減衰)</span>
+        </div>
+        <div class="preset-grid cols-5" id="dimmer-buttons">
+          <button class="preset-btn" data-dimmer="0">
+            <strong>Lv.1</strong>
+            <span>クリア (10%)</span>
+          </button>
+          <button class="preset-btn active" data-dimmer="1">
+            <strong>Lv.2</strong>
+            <span>標準 (35%)</span>
+          </button>
+          <button class="preset-btn" data-dimmer="2">
+            <strong>Lv.3</strong>
+            <span>中間 (60%)</span>
+          </button>
+          <button class="preset-btn" data-dimmer="3">
+            <strong>Lv.4</strong>
+            <span>濃色 (85%)</span>
+          </button>
+          <button class="preset-btn" data-dimmer="4">
+            <strong>Lv.5</strong>
+            <span>没入 (98%)</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Anchor & Visual Options -->
+      <section class="control-group two-col">
+        <div>
+          <h2>3. 空間追従モード (Anchor)</h2>
+          <div class="preset-grid cols-3" id="anchor-buttons">
+            <button class="preset-btn active" data-anchor="world">
+              <strong>6DoF 空間固定</strong>
+              <span>Anchor</span>
+            </button>
+            <button class="preset-btn" data-anchor="smooth">
+              <strong>Smooth Follow</strong>
+              <span>緩やかに追従</span>
+            </button>
+            <button class="preset-btn" data-anchor="head">
+              <strong>0DoF 頭部固定</strong>
+              <span>Head Lock</span>
+            </button>
+          </div>
+        </div>
+        <div>
+          <h2>4. 画面距離 (Distance)</h2>
+          <div class="preset-grid cols-4" id="distance-buttons">
+            <button class="preset-btn" data-dist="1.2"><strong>1.2m</strong><span>近距離</span></button>
+            <button class="preset-btn active" data-dist="1.8"><strong>1.8m</strong><span>標準</span></button>
+            <button class="preset-btn" data-dist="2.5"><strong>2.5m</strong><span>大画面</span></button>
+            <button class="preset-btn" data-dist="3.5"><strong>3.5m</strong><span>シアター</span></button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Toggles & Recenter -->
+      <section class="control-group">
+        <h2>5. 視界ガイド・グラスフレーム表示</h2>
+        <div class="toggle-row">
+          <label class="toggle-chip">
+            <input type="checkbox" id="chk-frame" checked />
+            <span>🕶️ グラスフレーム＆外レンズ再現</span>
+          </label>
+          <label class="toggle-chip">
+            <input type="checkbox" id="chk-fov-border" checked />
+            <span>🔲 光学プリズム境界枠</span>
+          </label>
+          <label class="toggle-chip">
+            <input type="checkbox" id="chk-compare-frames" />
+            <span>📐 歴代FOV比較枠の重ね表示</span>
+          </label>
+          <label class="toggle-chip">
+            <input type="checkbox" id="chk-angle-grid" />
+            <span>🌐 視野角ルーラー (10°刻み)</span>
+          </label>
+          <label class="toggle-chip">
+            <input type="checkbox" id="chk-additive-sim" />
+            <span>✨ 光学シースルー輝度透過感</span>
+          </label>
+          <button id="btn-recenter" class="hud-btn accent">
+            🎯 正面にウインドウを再配置 (R)
+          </button>
+        </div>
+      </section>
+
+      <!-- Controls Help -->
+      <footer class="help-bar">
+        <div>
+          <strong>Quest 操作:</strong>
+          レーザーまたはハンドピンチで3Dドック操作 / <strong>A・Xボタン:</strong> FOV切替 / <strong>B・Yボタン:</strong> 5段階調光 / <strong>グリップ長押し:</strong> 正面リセット
+        </div>
+        <div>
+          <strong>PC 操作:</strong>
+          左ドラッグで首振り(視野角クリッピング確認) / <code>1-5</code> FOV切替 / <code>D</code> 調光切替 / <code>R</code> 正面リセット
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <!-- Hidden video element for optional PC webcam passthrough simulation -->
+  <video id="webcam-video" autoplay playsinline muted style="display:none;"></video>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>
+
